@@ -7,7 +7,7 @@ Please note that the API gateway has request templates for JSON transformation f
 
 The output of the stack includes the URL to the API Gateway created, in addition to some other data. The only change needed to index.html file is to update the POST URLs used by the fetch API for insert and retreive (2 places).
 
-This implemetation is edge optimized.
+This implementation is edge optimized.
 
 
 
