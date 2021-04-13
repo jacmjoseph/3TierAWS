@@ -1,0 +1,116 @@
+<html>
+    <head>
+        <title>Project 1</title>
+    </head>
+    <body>
+        <h1>Jacob's Serverless 3-tier implementation</h1>
+		<h3>Instructions:</h3>
+		<ol>
+			<li>Insert the keys first using the insert feature</li>
+			<li>Retrieve the keys using the fetch feature</li>
+		</ol>
+		<a href="https://docs.aws.amazon.com/whitepapers/latest/serverless-multi-tier-architectures-api-gateway-lambda/three-tier-architecture-overview.html">AWS Reference Architecture:</a>
+		<p/>
+		<form>
+			<table style="background-color:powderblue;" width="500px">
+				<tr>
+					<td colspan=3>Enter the kay and value to insert and click the 'Insert' button</td>
+				<tr/>
+				<tr>
+					<td>Key</td>
+					<td>Value</td>
+					<td></td>					
+				<tr/>
+				<tr>
+					<td style="border:0px solid;width:50%"><input id="insertKey" type="text"></td>
+					<td style="border:0px solid;width:50%"><input id="insertVal" type="text"></td>
+					<td><input type="submit" value="Insert" onclick="sendData();return false"></td>
+				</tr>
+			</table>
+		</form>
+		<form action="/retrieve">
+			<table style="background-color:powderblue;" width="500px">
+				<tr>
+					<td colspan=2>Enter the key for the value to retrieve and click the 'Retrieve' button</td>
+				<tr/>
+				<tr>
+					<td style="border:0px solid;width:50%"><input id="retrieveVal" type="text"></td>
+					<td><input type="submit" value="Retrieve" onclick="retrieveData();return false"></td>
+				</tr>
+			</table>
+		</form>
+
+		<div class="result" style="color:red"></div>
+
+	<script>
+		function sendData(e) {
+			const val = document.querySelector("#insertVal").value;
+			let patt = /^[a-z0-9]+$/i;
+			if (val==null || !patt.test(val))
+			{
+				alert ("Insert value can't be empty or null and must be alphanumeric");
+				return false;
+			}
+
+			const key = document.querySelector("#insertKey").value;
+			if (key==null || !patt.test(key))
+			{
+				alert ("Key can't be empty or null and must be alphanumeric");
+				return false;
+			}
+			fetch("https://a1nhguszvh.execute-api.eu-west-2.amazonaws.com/prod/write", {
+			  method: "POST",
+			  headers: {
+				Accept: "application/json",
+				"Content-Type": "application/json"
+			  },
+			  body: JSON.stringify({
+				op: "create",
+				id: key,
+				value: val
+			  })
+			})
+			  .then(res => res.json())
+			  .then(data => {
+				const { result } = data;
+				document.querySelector(
+				  ".result"
+				).innerText = `Successful insert!`;
+			  })
+			  .catch(err => document.querySelector(".result").innerText = err);
+		}
+		function retrieveData(e) {
+			const key = document.querySelector("#retrieveVal").value;
+			let patt = /^[a-z0-9]+$/i;
+			if (key==null || !patt.test(key))
+			{
+				alert ("Retrieve value can't be empty or null and must be alphanumeric");
+				return false;
+			}
+
+			fetch("https://a1nhguszvh.execute-api.eu-west-2.amazonaws.com/prod/read", {
+			  method: "POST",			  
+			  headers: {
+				Accept: "application/json",
+				"Content-Type": "application/json"				
+			  },
+			  body: JSON.stringify({
+				op: "read",
+				id: key
+			  })
+			})
+			  .then(res => res.json())
+			  .then(data => {
+				console.info();
+				document.querySelector(
+				  ".result"
+				).innerText = "Retrieved value is: " + data.Item.value;
+			  })
+			  .catch(err => document.querySelector(".result").innerText = err);
+		}
+
+	</script>
+
+    </body>
+</html>
+

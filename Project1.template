@@ -1,0 +1,400 @@
+{
+   "AWSTemplateFormatVersion": "2010-09-09",
+   "Description": "Project 1 serverless implementation using API Gateway, Lambda and DynamoDB",
+   "Parameters": {
+      "LambdaS3Bucket": {
+         "Description": "S3 bucket source for Lamba zip file",
+         "Type": "String"
+      },
+      "LambdaS3Key": {
+         "Description": "Path to the Lambda zip file",
+         "Type": "String"
+      }
+   },
+
+   "Resources": {
+      "Project1BusinessLogicLambda": {
+         "Type": "AWS::Lambda::Function",
+         "Properties": {
+            "Code": {
+               "S3Bucket": { "Ref": "LambdaS3Bucket" },
+               "S3Key": { "Ref": "LambdaS3Key" }
+            },
+            "FunctionName": "Project1BusinessLogicLambda",
+            "Handler": "index.handler",
+            "MemorySize": "128",
+            "Role": { "Fn::GetAtt": [ "Project1BusinessLogicLambdaExecutionRole", "Arn" ] },
+            "Runtime": "nodejs14.x",
+            "Timeout": "5"
+         }
+      },
+      "Project1BusinessLogicLambdaInvokePermission": {
+         "Type": "AWS::Lambda::Permission",
+         "Properties": {
+            "FunctionName": { "Fn::GetAtt": [ "Project1BusinessLogicLambda", "Arn" ] },
+            "Action": "lambda:InvokeFunction",
+            "Principal": "apigateway.amazonaws.com"
+         }
+      },
+      "Project1BusinessLogicLambdaExecutionRole": {
+         "Type": "AWS::IAM::Role",
+         "Properties": {
+            "AssumeRolePolicyDocument": {
+               "Version": "2012-10-17",
+               "Statement": [
+                  {
+                     "Effect": "Allow",
+                     "Principal": {
+                        "Service": [ "lambda.amazonaws.com" ]
+                     },
+                     "Action": [ "sts:AssumeRole" ]
+                  }
+               ]
+            },
+            "Policies": [
+               {
+                  "PolicyName": "Project1BusinessLogicLambdaExecutionRolePolicy",
+                  "PolicyDocument": {
+                     "Version": "2012-10-17",
+                     "Statement": [
+                        {
+                           "Effect": "Allow",
+                           "Action": [
+                              "dynamodb:GetItem",
+                              "dynamodb:PutItem",                              
+                              "dynamodb:UpdateItem"
+                           ],
+                           "Resource": {
+                              "Fn::Join": [
+                                 "",
+                                 [
+                                    "arn:aws:dynamodb:",
+                                    { "Ref": "AWS::Region" },
+                                    ":",
+                                    { "Ref": "AWS::AccountId" },
+                                    ":table/",
+                                    { "Ref": "Project1DynamoDBTable" }
+                                 ]
+                              ]
+                           }
+                        },
+                        {
+                           "Effect": "Allow",
+                           "Action": [
+                              "logs:CreateLogGroup",
+                              "logs:CreateLogStream",
+                              "logs:PutLogEvents"
+                           ],
+                           "Resource": "*"
+                        }
+                     ]
+                  }
+               }
+            ]
+         }
+      },
+      "Project1API": {
+         "Type": "AWS::ApiGateway::RestApi",
+         "Properties": {
+           "Name": "Project1API",
+           "Description": "API to insert and read from DynamoDB",
+           "FailOnWarnings": true
+         }
+       },
+       "ApiGatewayCloudWatchLogsRole": {
+         "Type": "AWS::IAM::Role",
+         "Properties": {
+           "AssumeRolePolicyDocument": {
+             "Version": "2012-10-17",
+             "Statement": [{
+               "Effect": "Allow",
+               "Principal": { "Service": ["apigateway.amazonaws.com"] },
+               "Action": ["sts:AssumeRole"]
+             }]
+           },
+           "Policies": [{
+             "PolicyName": "Project1ApiGatewayLogsPolicy",
+             "PolicyDocument": {
+               "Version": "2012-10-17",
+               "Statement": [{
+                 "Effect": "Allow",
+                 "Action": [
+                   "logs:CreateLogGroup",
+                   "logs:CreateLogStream",
+                   "logs:DescribeLogGroups",
+                   "logs:DescribeLogStreams",
+                   "logs:PutLogEvents",
+                   "logs:GetLogEvents",
+                   "logs:FilterLogEvents"
+                 ],
+                 "Resource": "*"
+               }]
+             }
+           }]
+         }
+       },
+       "ApiGatewayRoleAttch": {
+         "Type": "AWS::ApiGateway::Account",
+         "Properties": {
+           "CloudWatchRoleArn": {"Fn::GetAtt": ["ApiGatewayCloudWatchLogsRole", "Arn"] }
+         }
+       },        
+       "DeployAPI": {
+         "Type": "AWS::ApiGateway::Deployment",
+         "DependsOn": ["GetIDRequest","OptionsRequestRead","InsertIDRequest","OptionsRequestWrite"],
+         "Properties": {
+           "RestApiId": {"Ref": "Project1API"},
+           "StageName": "prod"
+         }
+       },              
+      "Project1ReadResource": {
+         "Type": "AWS::ApiGateway::Resource",
+         "Properties": {
+           "RestApiId": {"Ref": "Project1API"},
+           "ParentId": {"Fn::GetAtt": ["Project1API", "RootResourceId"]},
+           "PathPart": "read"        
+         }
+       },
+       "Project1WriteResource": {
+         "Type": "AWS::ApiGateway::Resource",
+         "Properties": {
+           "RestApiId": {"Ref": "Project1API"},
+           "ParentId": {"Fn::GetAtt": ["Project1API", "RootResourceId"]},
+           "PathPart": "write"        
+         }
+       },       
+      "GetIDRequest": {
+         "DependsOn": "Project1BusinessLogicLambdaInvokePermission",
+         "Type": "AWS::ApiGateway::Method",
+         "Properties": {
+           "AuthorizationType": "NONE",
+           "HttpMethod": "POST",
+           "Integration": {
+             "Type": "AWS",
+             "IntegrationHttpMethod": "POST",
+             "Uri": {"Fn::Join": ["",
+               ["arn:aws:apigateway:", {"Ref": "AWS::Region"}, ":lambda:path/2015-03-31/functions/", {"Fn::GetAtt": ["Project1BusinessLogicLambda", "Arn"]}, "/invocations"]
+             ]},
+             "IntegrationResponses": [{               
+               "StatusCode": 200,
+               "ResponseParameters": { 
+                  "method.response.header.Access-Control-Allow-Origin": "'*'"
+                }               
+             }],
+             "RequestTemplates": {
+               "application/json": {"Fn::Join": ["", [
+                 "{",
+                 "\"operation\": $input.json('$.op'),",
+                 "\"tableName\": ",
+                 "\"",
+                 { "Ref": "Project1DynamoDBTable" },
+                 "\",",
+                 "\"payload\": {",
+                 "\"Key\": {",
+                 "\"id\": $input.json('$.id')",
+                 "}",
+                 "}",
+                 "}"
+               ]]}
+             }
+           },
+           "RequestParameters": {
+             "method.request.querystring.name": false
+           },
+           "ResourceId": {"Ref": "Project1ReadResource"},
+           "RestApiId": {"Ref": "Project1API"},
+           "MethodResponses": [{             
+             "StatusCode": 200,
+             "ResponseParameters": {               
+               "method.response.header.Access-Control-Allow-Origin": true
+             }             
+           }]
+         }
+       },
+       "InsertIDRequest": {
+         "DependsOn": "Project1BusinessLogicLambdaInvokePermission",
+         "Type": "AWS::ApiGateway::Method",
+         "Properties": {
+           "AuthorizationType": "NONE",
+           "HttpMethod": "POST",
+           "Integration": {
+             "Type": "AWS",
+             "IntegrationHttpMethod": "POST",
+             "Uri": {"Fn::Join": ["",
+               ["arn:aws:apigateway:", {"Ref": "AWS::Region"}, ":lambda:path/2015-03-31/functions/", {"Fn::GetAtt": ["Project1BusinessLogicLambda", "Arn"]}, "/invocations"]
+             ]},
+             "IntegrationResponses": [{
+               "StatusCode": 200,
+               "ResponseParameters": { 
+                  "method.response.header.Access-Control-Allow-Origin": "'*'"
+                }               
+             }],
+             "RequestTemplates": {
+               "application/json": {"Fn::Join": ["", [
+                 "{",
+                 "\"operation\": $input.json('$.op'),",
+                 "\"tableName\": ",
+                 "\"",
+                 { "Ref": "Project1DynamoDBTable" },
+                 "\",",
+                 "\"payload\": {",
+                 "\"Item\": {",
+                 "\"id\": $input.json('$.id'),",
+                 "\"value\": $input.json('$.value')",
+                 "}",
+                 "}",
+                 "}"
+               ]]}
+             }
+           },
+           "RequestParameters": {
+             "method.request.querystring.name": false
+           },
+           "ResourceId": {"Ref": "Project1WriteResource"},
+           "RestApiId": {"Ref": "Project1API"},
+           "MethodResponses": [{             
+             "StatusCode": 200,
+             "ResponseParameters": {               
+               "method.response.header.Access-Control-Allow-Origin": true
+             }             
+           }]
+         }
+       },       
+       "OptionsRequestRead": {
+         "Type": "AWS::ApiGateway::Method",
+         "Properties": {
+           "AuthorizationType": "NONE",
+           "RestApiId": {
+             "Ref": "Project1API"
+           },
+           "ResourceId": {
+             "Ref": "Project1ReadResource"
+           },
+           "HttpMethod": "OPTIONS",
+           "Integration": {
+             "IntegrationResponses": [
+               {
+                 "StatusCode": 200,
+                 "ResponseParameters": { 
+                   "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+                   "method.response.header.Access-Control-Allow-Methods": "'GET,POST,OPTIONS'",
+                   "method.response.header.Access-Control-Allow-Origin": "'*'"
+                 },
+                 "ResponseTemplates": {
+                   "application/json": ""
+                 }
+               }
+             ],
+             "PassthroughBehavior": "WHEN_NO_MATCH",
+             "RequestTemplates": {
+               "application/json": "{\"statusCode\": 200}"
+             },
+             "Type": "MOCK"
+           },
+           "MethodResponses": [
+             {
+               "StatusCode": 200,
+               "ResponseModels": {
+                 "application/json": "Empty"
+               },
+               "ResponseParameters": {
+                 "method.response.header.Access-Control-Allow-Headers": true,
+                 "method.response.header.Access-Control-Allow-Methods": true,
+                 "method.response.header.Access-Control-Allow-Origin": true
+               }
+             }
+           ]
+         }
+       },
+       "OptionsRequestWrite": {
+         "Type": "AWS::ApiGateway::Method",
+         "Properties": {
+           "AuthorizationType": "NONE",
+           "RestApiId": {
+             "Ref": "Project1API"
+           },
+           "ResourceId": {
+             "Ref": "Project1WriteResource"
+           },
+           "HttpMethod": "OPTIONS",
+           "Integration": {
+             "IntegrationResponses": [
+               {
+                 "StatusCode": 200,
+                 "ResponseParameters": { 
+                   "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+                   "method.response.header.Access-Control-Allow-Methods": "'GET,POST,OPTIONS'",
+                   "method.response.header.Access-Control-Allow-Origin": "'*'"
+                 },
+                 "ResponseTemplates": {
+                   "application/json": ""
+                 }
+               }
+             ],
+             "PassthroughBehavior": "WHEN_NO_MATCH",
+             "RequestTemplates": {
+               "application/json": "{\"statusCode\": 200}"
+             },
+             "Type": "MOCK"
+           },
+           "MethodResponses": [
+             {
+               "StatusCode": 200,
+               "ResponseModels": {
+                 "application/json": "Empty"
+               },
+               "ResponseParameters": {
+                 "method.response.header.Access-Control-Allow-Headers": true,
+                 "method.response.header.Access-Control-Allow-Methods": true,
+                 "method.response.header.Access-Control-Allow-Origin": true
+               }
+             }
+           ]
+         }
+       },                    
+      "Project1DynamoDBTable": {
+         "Type": "AWS::DynamoDB::Table",
+         "Properties": {
+            "AttributeDefinitions": [
+               {
+                  "AttributeName": "id",
+                  "AttributeType": "S"
+               }
+            ],
+            "KeySchema": [
+               {
+                  "AttributeName": "id",
+                  "KeyType": "HASH"
+               }
+            ],
+            "ProvisionedThroughput": {
+               "ReadCapacityUnits": "1",
+               "WriteCapacityUnits": "1"
+            }
+         }
+      }
+   },
+
+   "Outputs": {
+      "LambdaName": {
+         "Value": { "Ref": "Project1BusinessLogicLambda" },
+         "Description": "Project 1 Lambda function"
+      },
+      "TableName": {
+         "Value": { "Ref": "Project1DynamoDBTable" },
+         "Description": "Project 1 DynamoDB table"
+      },
+      "Project1API": {
+         "Value": { "Ref": "Project1API" },
+         "Description": "The main API gateway"
+      },
+      "APIDeployment": {
+         "Value": { "Ref": "DeployAPI" },
+         "Description": "The deployment of the API"
+      },
+      "RootUrl": {
+         "Description": "Root URL of the API gateway",
+         "Value": {"Fn::Join": ["", ["https://", {"Ref": "Project1API"}, ".execute-api.", {"Ref": "AWS::Region"}, ".amazonaws.com"]]}
+       }
+   }
+}
